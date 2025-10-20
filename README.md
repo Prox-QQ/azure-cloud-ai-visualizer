@@ -2,17 +2,7 @@
 ![alt text](image.png)
 Cloud Visualizer Pro is an open-source web application for visually designing Azure architecture diagrams, generating grounded Infrastructure-as-Code (IaC) (Bicep and Terraform), and orchestrating deployments. It combines a React/TypeScript frontend with a FastAPI backend and integrates the Microsoft Agent Framework (MAF) and Model Context Protocol (MCP) to ground LLM-driven IaC generation in official documentation.
 
-This repository is MIT licensed and contribution-friendly — contributions via pull requests and issue/task tracking are welcome.
-
-## License
-
-This project is released under the MIT License. See the `LICENSE` file for details.
-
-## Roadmap & Contributions
-
-- Contributions: Please open a pull request against `main`. Small, focused PRs with tests or screenshots are preferred.
-- Tasks / Issues: Use the project's issue tracker for bugs, feature requests, or development tasks. Label and link PRs to issue numbers where applicable.
-- Code of Conduct: Be respectful and follow standard open-source community practices.
+![alt text](image-1.png)
 
 ## High-level Architecture
 
@@ -27,7 +17,7 @@ This project is released under the MIT License. See the `LICENSE` file for detai
   - The app integrates external MCP servers (Microsoft Learn MCP and HashiCorp Terraform MCP) using a streamable MCP transport to ground model outputs in live documentation and provider schemas.
 
 ## Key Features
-
+![alt text](image-2.png)
 - Visual diagram editor for Azure architectures.
 - Grounded IaC generation:
   - Bicep generation with optional MCP grounding via Microsoft Learn MCP.
@@ -36,7 +26,6 @@ This project is released under the MIT License. See the `LICENSE` file for detai
 - Deploy orchestration pipeline (hooks for Azure SDK clients).
 - Offline/CI-friendly fallbacks: MockAgent/OpenAI fallback paths when MCP/MAF are unavailable.
 
-![alt text](image-1.png)
 
 ## Quickstart (Development)
 
@@ -119,15 +108,18 @@ Notes about MCP
 - Never commit secrets (API keys, connection strings) to the repository. Put secrets in `backend/.env` (not checked in) or in a secure secret manager.
 - When deploying, use managed identities or secure vaults instead of environment variables for production credentials.
 
-## License & Contribution
 
-- MIT License. You may fork and open PRs.
-- Please follow the contribution notes above and include tests for new features.
+## Roadmap & Contributions
+
+- Contributions: Please open a pull request against `main`. Small, focused PRs with tests or screenshots are preferred.
+- Tasks / Issues: Use the project's issue tracker for bugs, feature requests, or development tasks. Label and link PRs to issue numbers where applicable.
+- Code of Conduct: Be respectful and follow standard open-source community practices.
+
+## License
+
+- This project is released under the MIT License. See the `LICENSE` file for details.
+
 
 ## Contact / Maintainers
 
 If you have questions or need help reproducing issues, open an issue describing the problem and include logs from the backend (set `LOG_LEVEL=DEBUG` in `.env` to get detailed MCP handshake logs).
-
----
-
-Happy building! If you want, I can also add a `CONTRIBUTING.md`, a `CODE_OF_CONDUCT.md`, and a minimal `requirements.txt` extracted from the venv freeze. Let me know which of these you'd like next.
