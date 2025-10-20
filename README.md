@@ -54,26 +54,28 @@ pnpm install
 pnpm run dev
 ```
 
-2) Backend: create venv and install Python deps
+2) Backend: install dependencies using uv
 
 ```powershell
 cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt  # if present
-# If you don't have a requirements.txt, install typical deps listed in pyproject or pip freeze
+uv install
 ```
 
-3) Run backend (development)
+3) Set up environment (for easy development without Azure setup):
 
 ```powershell
-# from repo root
-# Ensure backend/.env contains your local overrides
-cd backend
-.\.venv\Scripts\Activate.ps1
-# Use uvicorn or the provided run tasks
-.\.venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
+# Copy example environment file
+cp .env.example .env
+# Edit .env and set:
+# USE_OPENAI_FALLBACK=true
+# OPENAI_API_KEY=your_openai_key_here
+```
+
+4) Run backend (development)
+
+```powershell
+# from backend directory
+uv run uvicorn main:app --reload --port 8000
 ```
 
 4) Open the frontend (Vite dev server) and it should proxy to the backend (see CORS settings in `backend/.env`).
