@@ -1,0 +1,29 @@
+# Backend Dockerfile for Azure Architect Backend (FastAPI)
+# Uses Python 3.11 slim as base
+FROM python:3.11-slim
+
+# Ensure pip is upgraded
+RUN python -m pip install --upgrade pip
+
+# Create app directory
+WORKDIR /app
+
+# Install system deps required for some packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the backend into the image
+COPY backend /app
+
+# Install the Python package (will read pyproject.toml and install dependencies)
+RUN pip install --no-cache-dir .
+
+# Expose port
+EXPOSE 8000
+
+# Entrypoint
+ENV PYTHONUNBUFFERED=1
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

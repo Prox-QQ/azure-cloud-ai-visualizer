@@ -1,0 +1,90 @@
+[project]
+name = "azure-architect-backend"
+version = "0.1.0"
+description = "Python backend for Azure Architect with Microsoft Agent Framework"
+authors = [
+    { name = "Azure Architect Team", email = "team@example.com" }
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # Web framework
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "websockets>=12.0",
+    
+    # Microsoft Agent Framework
+    "azure-ai-agents>=1.0.0b1",
+    "agent-framework>=1.0.0b251007",
+    "agent-framework-azure-ai>=1.0.0b251007",
+    
+    # Azure SDKs
+    "azure-identity>=1.15.0",
+    "azure-storage-blob>=12.19.0",
+    "azure-ai-projects>=1.0.0b1",
+    "azure-functions>=1.18.0",
+    "azure-functions-durable>=1.2.9",
+    "azure-keyvault-secrets>=4.8.0",
+    "azure-search-documents>=11.4.0",
+    
+    # OpenAI and AI
+    "openai>=1.35.0",
+    "azure-ai-inference>=1.0.0b1",
+    
+    # Data processing
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "asyncio-mqtt>=0.16.1",
+    
+    # Utilities
+    "python-multipart>=0.0.6",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.25.0",
+    "aiofiles>=23.2.1",
+    "jinja2>=3.1.2",
+    
+    # IaC generation
+    "PyYAML>=6.0.1",
+    "jsonschema>=4.20.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.7.0",
+    "ruff>=0.1.0",
+]
+
+
+
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+select = ["E", "W", "F", "I", "N", "UP"]
+ignore = ["E501"]  # Line too long (handled by black)
