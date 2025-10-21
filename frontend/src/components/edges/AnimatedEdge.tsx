@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { EdgeProps, getBezierPath, EdgeLabelRenderer } from '@xyflow/react';
+import { EdgeProps, getSmoothStepPath, EdgeLabelRenderer } from '@xyflow/react';
 import { Lock } from 'lucide-react';
 
 interface AnimatedEdgeData {
@@ -18,16 +18,22 @@ const AnimatedEdge = ({
   targetPosition,
   style = {},
   data,
+  label,
 }: EdgeProps) => {
   const edgeData = data as AnimatedEdgeData;
-  const [edgePath, labelX, labelY] = getBezierPath({
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
     sourcePosition,
     targetX,
     targetY,
     targetPosition,
+    borderRadius: 8,
   });
+
+  const connectionLabel = edgeData?.label || label;
+  const isSecure = edgeData?.secure;
+  const isAnimated = edgeData?.animated !== false;
 
   return (
     <>
@@ -36,15 +42,15 @@ const AnimatedEdge = ({
         style={style}
         className={`
           fill-none stroke-2 transition-all duration-300
-          ${edgeData?.animated ? 'animate-dash' : ''}
-          ${edgeData?.secure ? 'stroke-accent' : 'stroke-primary'}
+          ${isAnimated && !isSecure ? 'animate-dash' : ''}
+          ${isSecure ? 'stroke-accent' : 'stroke-primary'}
         `}
-        strokeDasharray={edgeData?.secure ? "5,5" : edgeData?.animated ? "8,4" : "none"}
+        strokeDasharray={isSecure ? "5,5" : isAnimated ? "8,4" : "none"}
         d={edgePath}
         markerEnd="url(#arrow)"
       />
       
-      {edgeData?.secure && (
+      {isSecure && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -59,7 +65,7 @@ const AnimatedEdge = ({
         </EdgeLabelRenderer>
       )}
 
-      {edgeData?.label && (
+      {connectionLabel && (
         <EdgeLabelRenderer>
           <div
             style={{
@@ -67,9 +73,9 @@ const AnimatedEdge = ({
               transform: `translate(-50%, -50%) translate(${labelX}px,${labelY - 20}px)`,
               pointerEvents: 'all',
             }}
-            className="glass-panel text-xs px-2 py-1 rounded-md"
+            className="glass-panel text-xs px-2 py-1 rounded-md whitespace-nowrap shadow-md border border-border/30"
           >
-            {edgeData.label}
+            {connectionLabel}
           </div>
         </EdgeLabelRenderer>
       )}

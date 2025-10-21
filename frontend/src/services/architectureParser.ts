@@ -375,7 +375,8 @@ export class ArchitectureParser {
           if (typeof ic === 'string') {
             title = ic;
           } else if (typeof ic === 'object') {
-            title = (ic.title || ic.file || ic.id || ic.path || '').toString();
+            const iconObj = ic as any;
+            title = (iconObj.title || iconObj.file || iconObj.id || iconObj.path || '').toString();
           } else {
             title = String(ic);
           }

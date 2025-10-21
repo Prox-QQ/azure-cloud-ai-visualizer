@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -7,12 +7,17 @@ import {
   BackgroundVariant,
   ReactFlowProvider,
   MarkerType,
+  Node as RFNode,
+  Edge as RFEdge,
+  SelectionChangeInfo,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useDiagramStore } from '@/store/diagramStore';
 import AzureServiceNode from '@/components/nodes/AzureServiceNode';
 import AnimatedEdge from '@/components/edges/AnimatedEdge';
 import ParticleEdge from '@/components/edges/ParticleEdge';
+import EdgeLabelModal from '@/components/layout/EdgeLabelModal';
+import { Button } from '@/components/ui/button';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { toast } from 'sonner';
 
@@ -36,6 +41,10 @@ const DiagramCanvas = () => {
     addNode,
     setSelectedNode,
   } = useDiagramStore();
+  const removeEdge = useDiagramStore((s) => s.removeEdge);
+  const updateEdgeLabel = useDiagramStore((s) => s.updateEdgeLabel);
+
+  const [editingEdgeId, setEditingEdgeId] = useState<string | null>(null);
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
@@ -70,15 +79,25 @@ const DiagramCanvas = () => {
   );
 
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: any) => {
+    (_: React.MouseEvent, node: RFNode) => {
       setSelectedNode(node);
     },
     [setSelectedNode]
   );
 
+  const onEdgeDoubleClick = useCallback((_: React.MouseEvent, edge: RFEdge) => {
+    // Open modal to edit label
+    setEditingEdgeId(edge.id);
+  }, []);
+
   const onPaneClick = useCallback(() => {
     setSelectedNode(null);
   }, [setSelectedNode]);
+
+  const onSelectionChange = useCallback((params: SelectionChangeInfo) => {
+    // params may contain selectedNodes and selectedEdges
+    // We'll keep the selected node via store; for edges we'll manage a local toolbar
+  }, []);
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -106,6 +125,8 @@ const DiagramCanvas = () => {
         onDrop={onDrop}
         onDragOver={onDragOver}
         onNodeClick={onNodeClick}
+        onEdgeDoubleClick={onEdgeDoubleClick}
+        onSelectionChange={onSelectionChange}
         onPaneClick={onPaneClick}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
@@ -154,7 +175,45 @@ const DiagramCanvas = () => {
             return 'hsl(var(--muted))';
           }}
         />
+        {/* Edge label editor modal */}
+        {editingEdgeId !== null && (
+          <div className="absolute top-6 right-6 z-50">
+            {/* floating modal is implemented with EdgeLabelModal component */}
+          </div>
+        )}
       </ReactFlow>
+      {/* Edge edit/delete floating controls */}
+      {editingEdgeId && (
+        <div className="absolute top-4 right-4 z-50 flex gap-2">
+          <button
+            onClick={() => {
+              // Show the EdgeLabelModal by keeping editingEdgeId
+              // The modal component is rendered below which reads editingEdgeId
+              setEditingEdgeId(editingEdgeId);
+            }}
+            className="btn glass-panel px-3 py-2 rounded-md border"
+            title="Edit edge label"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => {
+              removeEdge(editingEdgeId);
+              setEditingEdgeId(null);
+            }}
+            className="btn glass-panel px-3 py-2 rounded-md border text-destructive"
+            title="Delete edge"
+          >
+            Delete
+          </button>
+        </div>
+      )}
+      {/* EdgeLabelModal rendered outside ReactFlow so Dialog portal works */}
+      <EdgeLabelModal
+        edgeId={editingEdgeId}
+        open={!!editingEdgeId}
+        onClose={() => setEditingEdgeId(null)}
+      />
     </div>
   );
 };

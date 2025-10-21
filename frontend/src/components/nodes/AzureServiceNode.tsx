@@ -49,10 +49,18 @@ const AzureServiceNode = ({ data, selected }: NodeProps) => {
       `}
       data-node-id={nodeData.title}
     >
-      <Handle 
-        type="target" 
-        position={Position.Top} 
-        className="!bg-primary !w-3 !h-3 !border-2 !border-background transition-all hover:!w-4 hover:!h-4" 
+      {/* Top handles */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        id="top-target"
+        className="!bg-primary !w-3 !h-3 !border-2 !border-background transition-all hover:!w-4 hover:!h-4"
+      />
+      <Handle
+        type="source"
+        position={Position.Top}
+        id="top-source"
+        className="!bg-primary/80 !w-3 !h-3 !border-2 !border-background transition-all hover:!w-4 hover:!h-4"
       />
       
       <div className="flex flex-col items-center gap-3">
@@ -145,10 +153,44 @@ const AzureServiceNode = ({ data, selected }: NodeProps) => {
         )}
       </div>
 
-      <Handle 
-        type="source" 
-        position={Position.Bottom} 
-        className="!bg-primary !w-3 !h-3 !border-2 !border-background transition-all hover:!w-4 hover:!h-4" 
+      {/* Bottom handles */}
+      <Handle
+        type="target"
+        position={Position.Bottom}
+        id="bottom-target"
+        className="!bg-primary !w-3 !h-3 !border-2 !border-background transition-all hover:!w-4 hover:!h-4"
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id="bottom-source"
+        className="!bg-primary/80 !w-3 !h-3 !border-2 !border-background transition-all hover:!w-4 hover:!h-4"
+      />
+
+      {/* Left / Right handles to allow more connection points */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="left-target"
+        className="!bg-primary !w-3 !h-3 !border-2 !border-background transition-all hover:!w-4 hover:!h-4"
+      />
+      <Handle
+        type="source"
+        position={Position.Left}
+        id="left-source"
+        className="!bg-primary/80 !w-3 !h-3 !border-2 !border-background transition-all hover:!w-4 hover:!h-4"
+      />
+      <Handle
+        type="target"
+        position={Position.Right}
+        id="right-target"
+        className="!bg-primary !w-3 !h-3 !border-2 !border-background transition-all hover:!w-4 hover:!h-4"
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="right-source"
+        className="!bg-primary/80 !w-3 !h-3 !border-2 !border-background transition-all hover:!w-4 hover:!h-4"
       />
     </div>
   );

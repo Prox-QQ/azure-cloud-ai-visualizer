@@ -66,7 +66,7 @@ const EndpointsEditor = ({ selectedNode, updateNodeData }: { selectedNode: Selec
 const InspectorPanel = () => {
   const { selectedNode, updateNodeData } = useDiagramStore();
 
-  const nodeData = (selectedNode?.data || {}) as Partial<AzureService & { animationProfile?: { effect?: string; speed?: number }; badges?: string[] }>;
+  const nodeData = (selectedNode?.data || {}) as any;
 
   const update = (patch: Record<string, unknown>) => updateNodeData(selectedNode!.id, patch);
 

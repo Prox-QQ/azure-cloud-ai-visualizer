@@ -1,18 +1,20 @@
 import { create } from 'zustand';
-import { Node, Edge, Connection, addEdge, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
+import { Node as RFNode, Edge, Connection, addEdge, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
 
 interface DiagramState {
-  nodes: Node[];
+  nodes: RFNode[];
   edges: Edge[];
-  selectedNode: Node | null;
-  onNodesChange: (changes: any) => void;
-  onEdgesChange: (changes: any) => void;
+  selectedNode: RFNode | null;
+  onNodesChange: (changes: unknown) => void;
+  onEdgesChange: (changes: unknown) => void;
   onConnect: (connection: Connection) => void;
-  addNode: (node: Node) => void;
-  addNodesFromArchitecture: (nodes: Node[], connections: { from: string; to: string; label?: string }[]) => void;
+  addNode: (node: RFNode) => void;
+  addNodesFromArchitecture: (nodes: RFNode[], connections: { from: string; to: string; label?: string }[]) => void;
   clearDiagram: () => void;
-  setSelectedNode: (node: Node | null) => void;
-  updateNodeData: (nodeId: string, data: any) => void;
+  setSelectedNode: (node: RFNode | null) => void;
+  updateNodeData: (nodeId: string, data: Record<string, unknown>) => void;
+  removeEdge: (edgeId: string) => void;
+  updateEdgeLabel: (edgeId: string, label?: string, data?: Record<string, unknown>) => void;
 }
 
 export const useDiagramStore = create<DiagramState>((set, get) => ({
@@ -51,7 +53,7 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
     });
   },
 
-  addNodesFromArchitecture: (nodes: Node[], connections: { from: string; to: string; label?: string }[]) => {
+  addNodesFromArchitecture: (nodes: RFNode[], connections: { from: string; to: string; label?: string }[]) => {
     // Clear existing nodes or add to existing ones based on user preference
     const existingNodes = get().nodes;
     const newNodes = [...existingNodes, ...nodes];
@@ -97,5 +99,19 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
       nodes: newNodes,
       selectedNode: newSelected,
     });
+  },
+  // Remove an edge by id
+  removeEdge: (edgeId: string) => {
+    set({
+      edges: get().edges.filter((e) => e.id !== edgeId),
+    });
+  },
+
+  // Update an edge's label or data
+  updateEdgeLabel: (edgeId: string, label?: string, data?: Record<string, unknown> | undefined) => {
+    const newEdges = get().edges.map((edge) =>
+      edge.id === edgeId ? { ...edge, label: label ?? edge.label, data: { ...(edge.data || {}), ...(data || {}) } } : edge
+    );
+    set({ edges: newEdges });
   },
 }));
