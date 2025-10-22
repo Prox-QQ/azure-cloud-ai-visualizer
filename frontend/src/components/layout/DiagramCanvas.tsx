@@ -175,6 +175,16 @@ const DiagramCanvas = () => {
             return 'hsl(var(--muted))';
           }}
         />
+        {/* Dimmed background watermark */}
+        <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+          {/* Try to load public/logo.png; if missing the img will 404 silently in dev. */}
+          <img
+            src="/logo.png"
+            alt="logo"
+            className="max-w-[40%] opacity-10 dark:opacity-6 select-none"
+            style={{ filter: 'grayscale(1) blur(0.5px)', width: '40%', height: 'auto' }}
+          />
+        </div>
         {/* Edge label editor modal */}
         {editingEdgeId !== null && (
           <div className="absolute top-6 right-6 z-50">
