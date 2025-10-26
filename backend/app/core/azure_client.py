@@ -73,7 +73,7 @@ class AzureClientManager:
             self.agent_client = AzureAIAgentClient(
                 project_endpoint=settings.AZURE_AI_PROJECT_ENDPOINT,
                 model_deployment_name=settings.AZURE_AI_MODEL_DEPLOYMENT_NAME,
-                credential=self.credential
+                async_credential=self.credential
             )
             
             # Initialize Azure Architect Agent with Azure clients
