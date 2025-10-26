@@ -15,7 +15,33 @@ export interface ParsedArchitecture {
   services: AzureService[];
   connections: { from: string; to: string; label?: string }[];
   layout: 'horizontal' | 'vertical' | 'grid';
+  groups?: ParsedGroup[];
   bicepResources?: { resourceType: string; resourceName: string }[];
+}
+
+export type ParsedGroupType =
+  | 'region'
+  | 'landingZone'
+  | 'virtualNetwork'
+  | 'subnet'
+  | 'cluster'
+  | 'resourceGroup'
+  | 'networkSecurityGroup'
+  | 'securityBoundary'
+  | 'managementGroup'
+  | 'subscription'
+  | 'policyAssignment'
+  | 'roleAssignment'
+  | 'default';
+
+export interface ParsedGroup {
+  id: string;
+  label: string;
+  type: ParsedGroupType;
+  members: string[];
+  parentId?: string;
+  metadata?: Record<string, unknown>;
+  sourceServiceId?: string;
 }
 
 // Comprehensive mapping from service names and Bicep resource types to exact icon titles
@@ -66,6 +92,22 @@ const SERVICE_TO_ICON_MAPPINGS: { [key: string]: string } = {
   'vnet': 'Virtual Networks',
   'azure vnet': 'Virtual Networks',
   'Microsoft.Network/virtualNetworks': 'Virtual Networks',
+
+  // Subnet / NSG / Landing zone
+  'subnet': 'Subnet',
+  'network security group': 'Network Security Group',
+  'nsg': 'Network Security Group',
+  'landing zone': 'Landing Zone',
+  'landing-zone': 'Landing Zone',
+  'management group': 'Management Groups',
+  'management groups': 'Management Groups',
+  'subscription': 'Subscriptions',
+  'subscriptions': 'Subscriptions',
+  'policy assignment': 'Policy',
+  'policy definition': 'Policy',
+  'policy': 'Policy',
+  'role assignment': 'Entra Identity Roles And Administrators',
+  'rbac': 'Entra Identity Roles And Administrators',
   
   // Key Vault
   'key vault': 'Key Vaults',
@@ -130,6 +172,30 @@ const SERVICE_TO_ICON_MAPPINGS: { [key: string]: string } = {
   'microsoft.web/serverfarms': 'App Service Plans',
 };
 
+const GROUP_TITLE_KEYWORDS: Array<{ keyword: string; type: ParsedGroupType }> = [
+  { keyword: 'landing zone', type: 'landingZone' },
+  { keyword: 'landing-zone', type: 'landingZone' },
+  { keyword: 'region', type: 'region' },
+  { keyword: 'virtual network', type: 'virtualNetwork' },
+  { keyword: 'vnet', type: 'virtualNetwork' },
+  { keyword: 'subnet', type: 'subnet' },
+  { keyword: 'private subnet', type: 'subnet' },
+  { keyword: 'public subnet', type: 'subnet' },
+  { keyword: 'network security group', type: 'networkSecurityGroup' },
+  { keyword: 'nsg', type: 'networkSecurityGroup' },
+  { keyword: 'cluster', type: 'cluster' },
+  { keyword: 'aks cluster', type: 'cluster' },
+  { keyword: 'resource group', type: 'resourceGroup' },
+  { keyword: 'security boundary', type: 'securityBoundary' },
+  { keyword: 'management group', type: 'managementGroup' },
+  { keyword: 'tenant root', type: 'managementGroup' },
+  { keyword: 'subscription', type: 'subscription' },
+  { keyword: 'policy assignment', type: 'policyAssignment' },
+  { keyword: 'policy definition', type: 'policyAssignment' },
+  { keyword: 'role assignment', type: 'roleAssignment' },
+  { keyword: 'rbac role', type: 'roleAssignment' },
+];
+
 export class ArchitectureParser {
   /**
    * Parse AI response and extract Azure services and their relationships
@@ -157,11 +223,165 @@ export class ArchitectureParser {
     const extractedConnections = this.extractConnections(response, services);
     connections.push(...extractedConnections);
     
+    const { groups, refinedConnections } = this.buildGroupStructures(services, connections);
+
     return {
       services,
-      connections,
+      connections: refinedConnections,
+      groups,
       layout: services.length <= 3 ? 'horizontal' : services.length <= 6 ? 'vertical' : 'grid'
     };
+  }
+
+  private static detectGroupType(label?: string): ParsedGroupType | null {
+    if (!label) return null;
+    const normalized = label.toLowerCase();
+    const match = GROUP_TITLE_KEYWORDS.find(({ keyword }) => normalized.includes(keyword));
+    return match?.type ?? null;
+  }
+
+  private static buildGroupStructures(
+    services: AzureService[],
+    connections: { from: string; to: string; label?: string }[]
+  ): { groups: ParsedGroup[]; refinedConnections: { from: string; to: string; label?: string }[] } {
+    if (!services || services.length === 0) {
+      return { groups: [], refinedConnections: connections };
+    }
+
+    const serviceMap = new Map(services.map((service) => [service.id, service]));
+    const groups: ParsedGroup[] = [];
+    const groupMap = new Map<string, ParsedGroup>();
+    const groupServiceIds = new Set<string>();
+
+    services.forEach((service) => {
+      const type =
+        this.detectGroupType(service.title) ||
+        this.detectGroupType(service.category) ||
+        this.detectGroupType(service.id);
+
+      if (type) {
+        const group: ParsedGroup = {
+          id: service.id,
+          label: service.title || service.id,
+          type,
+          members: [],
+          metadata: {
+            category: service.category,
+            iconPath: service.iconPath,
+          },
+          sourceServiceId: service.id,
+        };
+        groups.push(group);
+        groupMap.set(group.id, group);
+        groupServiceIds.add(service.id);
+        (service as unknown as { __isGroup?: boolean }).__isGroup = true;
+      }
+    });
+
+    // If no explicit group services detected, try to infer from service names
+    if (groups.length === 0) {
+      services.forEach((service) => {
+        const type = this.detectGroupType(service.title || service.description);
+        if (type) {
+          const groupId = service.id;
+          if (!groupMap.has(groupId)) {
+            const group: ParsedGroup = {
+              id: groupId,
+              label: service.title || service.id,
+              type,
+              members: [],
+              metadata: {
+                category: service.category,
+                iconPath: service.iconPath,
+              },
+              sourceServiceId: service.id,
+            };
+            groups.push(group);
+            groupMap.set(group.id, group);
+            (service as unknown as { __isGroup?: boolean }).__isGroup = true;
+          }
+        }
+      });
+    }
+
+    if (groups.length === 0) {
+      return { groups: [], refinedConnections: connections };
+    }
+
+    const groupOrder: ParsedGroupType[] = [
+      'managementGroup',
+      'subscription',
+      'region',
+      'landingZone',
+      'resourceGroup',
+      'virtualNetwork',
+      'subnet',
+      'cluster',
+      'networkSecurityGroup',
+      'policyAssignment',
+      'roleAssignment',
+      'securityBoundary',
+      'default',
+    ];
+
+    const edgeMembership = new Set<string>();
+
+    const registerMembership = (group: ParsedGroup, memberId: string) => {
+      if (!memberId || !group) return;
+      if (!group.members.includes(memberId)) {
+        group.members.push(memberId);
+      }
+    };
+
+    const chooseParentGroup = (a: ParsedGroup, b: ParsedGroup): ParsedGroup => {
+      const indexA = groupOrder.indexOf(a.type);
+      const indexB = groupOrder.indexOf(b.type);
+      if (indexA === -1 && indexB === -1) return a;
+      if (indexA === -1) return b;
+      if (indexB === -1) return a;
+      return indexA <= indexB ? a : b;
+    };
+
+    const edgeKey = (from: string, to: string) => `${from}__${to}`;
+
+    connections.forEach((connection) => {
+      const fromGroup = groupMap.get(connection.from);
+      const toGroup = groupMap.get(connection.to);
+
+      if (fromGroup && !toGroup) {
+        registerMembership(fromGroup, connection.to);
+        edgeMembership.add(edgeKey(connection.from, connection.to));
+        edgeMembership.add(edgeKey(connection.to, connection.from));
+      } else if (!fromGroup && toGroup) {
+        registerMembership(toGroup, connection.from);
+        edgeMembership.add(edgeKey(connection.from, connection.to));
+        edgeMembership.add(edgeKey(connection.to, connection.from));
+      } else if (fromGroup && toGroup) {
+        const parent = chooseParentGroup(fromGroup, toGroup);
+        const child = parent.id === fromGroup.id ? toGroup : fromGroup;
+        if (!child.parentId) {
+          child.parentId = parent.id;
+        }
+        registerMembership(parent, child.id);
+        edgeMembership.add(edgeKey(connection.from, connection.to));
+        edgeMembership.add(edgeKey(connection.to, connection.from));
+      }
+    });
+
+    // Deduplicate members and ensure referenced services exist
+    groups.forEach((group) => {
+      group.members = Array.from(
+        new Set(
+          group.members.filter((memberId) => serviceMap.has(memberId) || groupMap.has(memberId))
+        )
+      );
+    });
+
+    const refinedConnections = connections.filter(
+      (connection) => !edgeMembership.has(edgeKey(connection.from, connection.to))
+    );
+
+    return { groups, refinedConnections };
   }
   
   /**
@@ -215,6 +435,11 @@ export class ArchitectureParser {
       /\bvnet\b/gi,
       /\bresource\s+group\b/gi,
       /\bapplication\s+gateway\b/gi,
+      /\bmanagement\s+group\b/gi,
+      /\bsubscription(s)?\b/gi,
+      /\bpolicy\s+(assignment|definition)\b/gi,
+      /\brole\s+assignment\b/gi,
+      /\brbac\b/gi,
     ];
     
     // Extract natural language service names
@@ -375,8 +600,11 @@ export class ArchitectureParser {
           if (typeof ic === 'string') {
             title = ic;
           } else if (typeof ic === 'object') {
-            const iconObj = ic as any;
-            title = (iconObj.title || iconObj.file || iconObj.id || iconObj.path || '').toString();
+            const iconObj = ic as Record<string, unknown>;
+            const rawTitle = ['title', 'file', 'id', 'path']
+              .map((key) => iconObj[key])
+              .find((value) => typeof value === 'string') as string | undefined;
+            title = rawTitle ?? '';
           } else {
             title = String(ic);
           }
@@ -489,6 +717,18 @@ export class ArchitectureParser {
         to: ['azure cosmos db', 'sql database', 'mysql', 'postgresql'],
         label: 'data access'
       },
+      // Subscriptions enforce policy assignments
+      {
+        from: ['policy'],
+        to: ['subscriptions', 'management groups', 'landing zone'],
+        label: 'policy scope'
+      },
+      // Role assignments apply to subscriptions/landing zones
+      {
+        from: ['entra identity roles and administrators'],
+        to: ['subscriptions', 'resource groups', 'landing zone'],
+        label: 'rbac'
+      },
       // App Service connects to App Service Plan
       {
         from: ['app services'],
@@ -518,6 +758,24 @@ export class ArchitectureParser {
         from: ['application gateways'],
         to: ['app services'],
         label: 'load balancer'
+      },
+      // Management group scopes subscriptions
+      {
+        from: ['management groups'],
+        to: ['subscriptions'],
+        label: 'scope'
+      },
+      // Subscriptions contain landing zones and resource groups
+      {
+        from: ['subscriptions'],
+        to: ['landing zone', 'resource groups'],
+        label: 'contains'
+      },
+      // Landing zones include virtual networks
+      {
+        from: ['landing zone'],
+        to: ['virtual networks', 'virtual network', 'subnet'],
+        label: 'network'
       }
     ];
     
@@ -562,6 +820,11 @@ export class ArchitectureParser {
    * Generate React Flow nodes from parsed architecture
    */
   static generateNodes(architecture: ParsedArchitecture): Node[] {
+    const { groups } = architecture;
+    if (groups && groups.length > 0) {
+      return this.generateGroupedNodes(architecture);
+    }
+
     const nodes: Node[] = [];
     const { services, layout } = architecture;
     
@@ -582,6 +845,360 @@ export class ArchitectureParser {
       });
     });
     
+    return nodes;
+  }
+
+  private static generateGroupedNodes(architecture: ParsedArchitecture): Node[] {
+    const nodes: Node[] = [];
+    const { services, groups = [], layout } = architecture;
+    if (groups.length === 0) {
+      return nodes;
+    }
+
+    const serviceMap = new Map(services.map((service) => [service.id, service]));
+    const groupMap = new Map(groups.map((group) => [group.id, group]));
+
+    // Ensure parent references point to known groups
+    groups.forEach((group) => {
+      if (group.parentId && !groupMap.has(group.parentId)) {
+        group.parentId = undefined;
+      }
+    });
+
+    const computeGroupDepth = (groupId: string, cache = new Map<string, number>()): number => {
+      if (cache.has(groupId)) return cache.get(groupId)!;
+      const group = groupMap.get(groupId);
+      if (!group) {
+        cache.set(groupId, 0);
+        return 0;
+      }
+      const depth = group.parentId ? computeGroupDepth(group.parentId, cache) + 1 : 0;
+      cache.set(groupId, depth);
+      return depth;
+    };
+
+    const depthCache = new Map<string, number>();
+    groups.forEach((group) => computeGroupDepth(group.id, depthCache));
+
+    const serviceParent = new Map<string, string>();
+    groups.forEach((group) => {
+      const depth = depthCache.get(group.id) ?? 0;
+      group.members = (group.members || []).filter((memberId) => {
+        if (groupMap.has(memberId)) {
+          const childGroup = groupMap.get(memberId)!;
+          if (!childGroup.parentId || childGroup.parentId === group.id) {
+            childGroup.parentId = group.id;
+          }
+          return true;
+        }
+        return serviceMap.has(memberId);
+      });
+
+      group.members.forEach((memberId) => {
+        if (!serviceMap.has(memberId)) {
+          return;
+        }
+        const existingParent = serviceParent.get(memberId);
+        if (!existingParent) {
+          serviceParent.set(memberId, group.id);
+          return;
+        }
+        const existingDepth = depthCache.get(existingParent) ?? 0;
+        if (depth > existingDepth) {
+          serviceParent.set(memberId, group.id);
+        }
+      });
+    });
+
+    interface GroupLayoutInfo {
+      width: number;
+      height: number;
+      serviceIds: string[];
+      childGroupIds: string[];
+      columns: number;
+    }
+
+    const SERVICE_WIDTH = 190;
+    const SERVICE_HEIGHT = 120;
+    const PADDING_X = 48;
+    const PADDING_TOP = 72;
+    const GROUP_GAP = 48;
+    const SERVICE_GAP_X = 32;
+    const SERVICE_GAP_Y = 40;
+
+    const layoutInfoMap = new Map<string, GroupLayoutInfo>();
+
+    const measureGroup = (groupId: string): GroupLayoutInfo => {
+      if (layoutInfoMap.has(groupId)) {
+        return layoutInfoMap.get(groupId)!;
+      }
+
+      const group = groupMap.get(groupId);
+      if (!group) {
+        const empty: GroupLayoutInfo = {
+          width: 360,
+          height: 240,
+          serviceIds: [],
+          childGroupIds: [],
+          columns: 1,
+        };
+        layoutInfoMap.set(groupId, empty);
+        return empty;
+      }
+
+      const childGroupIds = groups
+        .filter((candidate) => candidate.parentId === groupId && candidate.id !== groupId)
+        .map((candidate) => candidate.id);
+
+      const serviceIds = group.members.filter((memberId) => serviceMap.has(memberId));
+
+      const measuredChildGroups = childGroupIds.map((childId) => measureGroup(childId));
+
+      const serviceCount = serviceIds.length;
+      const columns =
+        serviceCount > 0 ? Math.min(3, Math.max(1, Math.ceil(Math.sqrt(serviceCount)))) : 1;
+      const serviceRows = serviceCount > 0 ? Math.ceil(serviceCount / columns) : 0;
+      const serviceAreaWidth =
+        serviceCount > 0 ? columns * SERVICE_WIDTH + Math.max(0, columns - 1) * SERVICE_GAP_X : 0;
+      const serviceAreaHeight =
+        serviceRows > 0
+          ? serviceRows * SERVICE_HEIGHT + Math.max(0, serviceRows - 1) * SERVICE_GAP_Y
+          : 0;
+
+      const nestedWidth =
+        measuredChildGroups.length > 0
+          ? Math.max(...measuredChildGroups.map((info) => info.width))
+          : 0;
+      const nestedHeight =
+        measuredChildGroups.length > 0
+          ? measuredChildGroups.reduce((total, info, index) => {
+              const gap = index === 0 ? 0 : GROUP_GAP;
+              return total + info.height + gap;
+            }, 0)
+          : 0;
+
+      const innerWidth = Math.max(serviceAreaWidth, nestedWidth, SERVICE_WIDTH);
+      const width = Math.max(innerWidth + PADDING_X * 2, 360);
+      const height =
+        PADDING_TOP +
+        serviceAreaHeight +
+        (serviceAreaHeight > 0 && nestedHeight > 0 ? GROUP_GAP : 0) +
+        nestedHeight +
+        56;
+
+      const computed: GroupLayoutInfo = {
+        width,
+        height,
+        serviceIds,
+        childGroupIds,
+        columns,
+      };
+
+      layoutInfoMap.set(groupId, computed);
+      return computed;
+    };
+
+    groups.forEach((group) => measureGroup(group.id));
+
+    const groupedServiceIds = new Set<string>(Array.from(serviceParent.keys()));
+    const groupServiceIds = new Set<string>(
+      groups.map((group) => group.sourceServiceId || group.id)
+    );
+
+    let rootGroups = groups.filter((group) => !group.parentId);
+    if (rootGroups.length === 0) {
+      rootGroups = [...groups];
+      rootGroups.forEach((group) => {
+        group.parentId = undefined;
+      });
+    }
+
+    const placedGroupIds = new Set<string>();
+
+    let maxCanvasX = 0;
+    let maxCanvasY = 0;
+
+    const placeGroup = (
+      groupId: string,
+      x: number,
+      y: number,
+      parentId?: string,
+      absoluteX?: number,
+      absoluteY?: number
+    ) => {
+      if (placedGroupIds.has(groupId)) {
+        return;
+      }
+      placedGroupIds.add(groupId);
+
+      const group = groupMap.get(groupId);
+      const layoutInfo = layoutInfoMap.get(groupId);
+      if (!group || !layoutInfo) {
+        return;
+      }
+
+      const absoluteLeft = absoluteX ?? x;
+      const absoluteTop = absoluteY ?? y;
+
+      maxCanvasX = Math.max(maxCanvasX, absoluteLeft + layoutInfo.width);
+      maxCanvasY = Math.max(maxCanvasY, absoluteTop + layoutInfo.height);
+
+      const groupNode: Node = {
+        id: group.id,
+        type: 'azure.group',
+        position: { x, y },
+        data: {
+          label: group.label,
+          groupType: group.type,
+          status: 'group',
+          metadata: group.metadata,
+        },
+        style: {
+          width: layoutInfo.width,
+          height: layoutInfo.height,
+        },
+        draggable: true,
+        selectable: true,
+        ...(parentId
+          ? {
+              parentNode: parentId,
+              extent: 'parent' as const,
+            }
+          : {}),
+      };
+
+      nodes.push(groupNode);
+
+      const innerWidth = layoutInfo.width - PADDING_X * 2;
+      const serviceColumns = Math.max(1, layoutInfo.columns);
+
+      layoutInfo.serviceIds.forEach((serviceId, index) => {
+        const service = serviceMap.get(serviceId);
+        if (!service) return;
+
+        const column = index % serviceColumns;
+        const row = Math.floor(index / serviceColumns);
+
+        const xOffset =
+          PADDING_X +
+          column * (innerWidth / serviceColumns) +
+          Math.max(0, (innerWidth / serviceColumns - SERVICE_WIDTH) / 2);
+        const yOffset = PADDING_TOP + row * (SERVICE_HEIGHT + SERVICE_GAP_Y);
+
+        nodes.push({
+          id: service.id,
+          type: 'azure.service',
+          position: { x: xOffset, y: yOffset },
+          parentNode: group.id,
+          extent: 'parent',
+          data: {
+            title: service.title,
+            subtitle: service.description,
+            iconPath: service.iconPath,
+            status: 'active' as const,
+            service,
+          },
+        });
+      });
+
+      let currentY =
+        PADDING_TOP +
+        (layoutInfo.serviceIds.length > 0
+          ? Math.ceil(layoutInfo.serviceIds.length / serviceColumns) *
+              (SERVICE_HEIGHT + SERVICE_GAP_Y)
+          : 0);
+
+      if (layoutInfo.serviceIds.length > 0 && layoutInfo.childGroupIds.length > 0) {
+        currentY += GROUP_GAP;
+      }
+
+      layoutInfo.childGroupIds.forEach((childId) => {
+        const childInfo = layoutInfoMap.get(childId);
+        if (!childInfo) return;
+
+        const childX =
+          PADDING_X + Math.max(0, (innerWidth - childInfo.width) / 2);
+        const childY = currentY;
+
+        placeGroup(
+          childId,
+          childX,
+          childY,
+          group.id,
+          absoluteLeft + childX,
+          absoluteTop + childY
+        );
+
+        currentY += childInfo.height + GROUP_GAP;
+      });
+    };
+
+    const rootGap = 120;
+    const primaryPaddingX = 80;
+    const primaryPaddingY = 80;
+
+    const rootCount = Math.max(rootGroups.length, 1);
+    const columns =
+      layout === 'vertical'
+        ? 1
+        : layout === 'horizontal'
+        ? rootCount
+        : Math.max(1, Math.ceil(Math.sqrt(rootCount)));
+
+    let currentColumn = 0;
+    let currentX = primaryPaddingX;
+    let currentY = primaryPaddingY;
+    let rowHeight = 0;
+
+    rootGroups.forEach((group, index) => {
+      const info = layoutInfoMap.get(group.id);
+      if (!info) return;
+
+      if (currentColumn >= columns) {
+        currentColumn = 0;
+        currentX = primaryPaddingX;
+        currentY += rowHeight + rootGap;
+        rowHeight = 0;
+      }
+
+      placeGroup(group.id, currentX, currentY, undefined, currentX, currentY);
+
+      currentX += info.width + rootGap;
+      rowHeight = Math.max(rowHeight, info.height);
+      currentColumn += 1;
+    });
+
+    const ungroupedServices = services.filter((service) => {
+      if (groupServiceIds.has(service.id)) return false;
+      if ((service as unknown as { __isGroup?: boolean }).__isGroup) return false;
+      return !groupedServiceIds.has(service.id);
+    });
+
+    if (ungroupedServices.length > 0) {
+      const startY = maxCanvasY > 0 ? maxCanvasY + 160 : 400;
+      const offsetX = 80;
+
+      ungroupedServices.forEach((service, index) => {
+        const position = this.calculateNodePosition(
+          index,
+          ungroupedServices.length,
+          layout
+        );
+        nodes.push({
+          id: service.id,
+          type: 'azure.service',
+          position: { x: position.x + offsetX, y: position.y + startY },
+          data: {
+            title: service.title,
+            subtitle: service.description,
+            iconPath: service.iconPath,
+            status: 'active' as const,
+            service,
+          },
+        });
+      });
+    }
+
     return nodes;
   }
   

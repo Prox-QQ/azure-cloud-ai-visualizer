@@ -63,6 +63,31 @@ const EndpointsEditor = ({ selectedNode, updateNodeData }: { selectedNode: Selec
   );
 };
 
+const MetadataEditor = ({ selectedNode, updateNodeData }: { selectedNode: SelectedNodeLike; updateNodeData: (id: string, patch: Record<string, unknown>) => void }) => {
+  const initial = selectedNode.data?.metadata ? JSON.stringify(selectedNode.data.metadata, null, 2) : '{}';
+  const [text, setText] = useState(initial);
+
+  useEffect(() => {
+    setText(selectedNode.data?.metadata ? JSON.stringify(selectedNode.data.metadata, null, 2) : '{}');
+  }, [selectedNode]);
+
+  return (
+    <textarea
+      className="w-full h-32 p-2 bg-muted/10 rounded border border-muted/20 text-sm overflow-auto"
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={() => {
+        try {
+          const parsed = JSON.parse(text || '{}');
+          updateNodeData(selectedNode.id, { metadata: parsed });
+        } catch (err) {
+          // ignore parse errors
+        }
+      }}
+    />
+  );
+};
+
 const InspectorPanel = () => {
   const { selectedNode, updateNodeData } = useDiagramStore();
 
@@ -78,6 +103,8 @@ const InspectorPanel = () => {
   const isKeyVault = rt.includes('keyvault');
   const isSearch = rt.includes('search/searchservices');
   const hasIdentity = !!nodeData.identity || isWebApp;
+  const isGroupNode = selectedNode?.type === 'azure.group';
+  const groupType = (nodeData.groupType || '') as string;
 
   if (!selectedNode) {
     return (
@@ -116,6 +143,22 @@ const InspectorPanel = () => {
               className="bg-muted/30"
             />
           </div>
+
+          {isGroupNode && (
+            <div className="space-y-4 glass-panel border border-border/40 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold">Group Type</span>
+                <Badge variant="outline" className="uppercase">{groupType || 'group'}</Badge>
+              </div>
+              <div className="space-y-2">
+                <Label>Metadata</Label>
+                <MetadataEditor selectedNode={selectedNode} updateNodeData={updateNodeData} />
+                <p className="text-xs text-muted-foreground">
+                  Metadata is exported into IaC scopes. Provide values such as <code>subscriptionId</code>, <code>managementGroupId</code>, <code>policyDefinitionId</code>, or <code>roleDefinitionId</code>.
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="node-subtitle">Subtitle</Label>

@@ -7,7 +7,7 @@ import json
 import re
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import List, Dict, Optional
+from typing import Any, Dict, List, Optional, Literal
 import os
 import asyncio
 from dotenv import load_dotenv
@@ -173,6 +173,69 @@ def normalize_connections(analysis_json: dict) -> List[dict]:
     return out
 
 
+GROUP_TYPE_KEYWORDS: List[tuple[str, str]] = [
+    ("landing zone", "landingZone"),
+    ("landing-zone", "landingZone"),
+    ("virtual network", "virtualNetwork"),
+    ("vnet", "virtualNetwork"),
+    ("subnet", "subnet"),
+    ("region", "region"),
+    ("resource group", "resourceGroup"),
+    ("cluster", "cluster"),
+    ("aks", "cluster"),
+    ("network security group", "networkSecurityGroup"),
+    ("nsg", "networkSecurityGroup"),
+    ("security boundary", "securityBoundary"),
+    ("management group", "managementGroup"),
+    ("tenant root", "managementGroup"),
+    ("subscription", "subscription"),
+    ("policy assignment", "policyAssignment"),
+    ("policy definition", "policyAssignment"),
+    ("role assignment", "roleAssignment"),
+    ("rbac", "roleAssignment"),
+]
+
+GROUP_TYPE_ORDER: List[str] = [
+    "managementGroup",
+    "subscription",
+    "region",
+    "landingZone",
+    "resourceGroup",
+    "virtualNetwork",
+    "subnet",
+    "cluster",
+    "networkSecurityGroup",
+    "policyAssignment",
+    "roleAssignment",
+    "securityBoundary",
+    "default",
+]
+
+
+def normalize_group_key(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
+
+def infer_group_type(label: Optional[str], explicit: Optional[str] = None) -> str:
+    if explicit:
+        cleaned = explicit.lower()
+        for _, mapped in GROUP_TYPE_KEYWORDS:
+            if mapped.lower() == explicit.lower().replace("_", ""):
+                return mapped
+    text = (label or "").lower()
+    for keyword, mapped in GROUP_TYPE_KEYWORDS:
+        if keyword in text:
+            return mapped
+    if explicit:
+        combined = explicit.lower().replace("_", " ")
+        for keyword, mapped in GROUP_TYPE_KEYWORDS:
+            if keyword in combined:
+                return mapped
+    return "default"
+
+
 class ImageAnalysisRequest(BaseModel):
     image: str  # Base64 encoded image
     format: str  # Image format (e.g., "image/jpeg")
@@ -182,14 +245,213 @@ class DiagramConnection(BaseModel):
     to_service: str = ""
     label: Optional[str] = None
 
+class DiagramGroup(BaseModel):
+    id: str
+    label: str
+    group_type: Literal[
+        "managementGroup",
+        "subscription",
+        "region",
+        "landingZone",
+        "virtualNetwork",
+        "subnet",
+        "cluster",
+        "resourceGroup",
+        "networkSecurityGroup",
+        "securityBoundary",
+        "policyAssignment",
+        "roleAssignment",
+        "default",
+    ] = "default"
+    members: List[str] = []
+    parent_id: Optional[str] = None
+    metadata: Dict[str, Any] = {}
+
 class DiagramAnalysisResult(BaseModel):
     services: List[str]
     connections: List[DiagramConnection]
     description: str
     suggested_services: List[str]
+    groups: List[DiagramGroup] = []
 
 class ImageAnalysisResponse(BaseModel):
     analysis: DiagramAnalysisResult
+
+
+def _choose_parent_group(a: DiagramGroup, b: DiagramGroup) -> DiagramGroup:
+    index_a = GROUP_TYPE_ORDER.index(a.group_type) if a.group_type in GROUP_TYPE_ORDER else len(GROUP_TYPE_ORDER)
+    index_b = GROUP_TYPE_ORDER.index(b.group_type) if b.group_type in GROUP_TYPE_ORDER else len(GROUP_TYPE_ORDER)
+    if index_a == index_b:
+        return a
+    return a if index_a < index_b else b
+
+
+def _register_group(
+    groups: Dict[str, DiagramGroup],
+    key_lookup: Dict[str, str],
+    label: str,
+    group_type: Optional[str] = None,
+    group_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> DiagramGroup:
+    normalized_label = normalize_group_key(label)
+    normalized_id = normalize_group_key(group_id)
+
+    lookup_keys = [normalized_id, normalized_label]
+    for key in lookup_keys:
+        if key and key in key_lookup and key_lookup[key] in groups:
+            existing_group = groups[key_lookup[key]]
+            if metadata:
+                existing_group.metadata.update(metadata)
+            return existing_group
+
+    resolved_id = group_id or normalized_label or f"group-{len(groups) + 1}"
+    if resolved_id in groups:
+        resolved_id = f"{resolved_id}-{len(groups) + 1}"
+
+    inferred_type = infer_group_type(label, group_type)
+    inferred_type = infer_group_type(label, group_type)
+    default_metadata: Dict[str, Dict[str, Any]] = {
+        "managementGroup": {"managementGroupId": ""},
+        "subscription": {"subscriptionId": ""},
+        "policyAssignment": {"policyDefinitionId": "", "scope": ""},
+        "roleAssignment": {"roleDefinitionId": "", "principalId": "", "principalType": ""},
+    }
+
+    combined_metadata = {**default_metadata.get(inferred_type, {}), **(metadata or {})}
+
+    group = DiagramGroup(
+        id=resolved_id,
+        label=label or resolved_id,
+        group_type=inferred_type if inferred_type in GROUP_TYPE_ORDER else "default",
+        metadata=combined_metadata,
+        members=[],
+    )
+    groups[resolved_id] = group
+
+    for key in lookup_keys:
+        if key:
+            key_lookup[key] = resolved_id
+
+    return group
+
+
+def build_group_structures(
+    services: List[str],
+    connections: List[DiagramConnection],
+    raw_groups: Any = None,
+) -> List[DiagramGroup]:
+    groups: Dict[str, DiagramGroup] = {}
+    key_lookup: Dict[str, str] = {}
+    pending_parent_links: List[tuple[str, str]] = []
+    pending_child_links: List[tuple[str, str]] = []
+
+    raw_group_entries = raw_groups if isinstance(raw_groups, list) else []
+
+    for entry in raw_group_entries:
+        if not isinstance(entry, dict):
+            continue
+
+        label = entry.get("label") or entry.get("name") or entry.get("id") or f"Group {len(groups) + 1}"
+        group_type = entry.get("group_type") or entry.get("type")
+        group_id = entry.get("id")
+        metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+
+        group = _register_group(groups, key_lookup, label, group_type, group_id, metadata)
+
+        members = entry.get("members") or []
+        if isinstance(members, list):
+            for member in members:
+                if isinstance(member, (str, int)):
+                    member_str = str(member)
+                    normalized_member = normalize_group_key(member_str)
+                    if normalized_member:
+                        pending_child_links.append((group.id, normalized_member))
+                    else:
+                        group.members.append(member_str)
+
+        parent_ref = entry.get("parent_id") or entry.get("parent")
+        if isinstance(parent_ref, str):
+            pending_parent_links.append((group.id, normalize_group_key(parent_ref)))
+
+    for service in services:
+        inferred = infer_group_type(service)
+        if inferred != "default":
+            _register_group(groups, key_lookup, service, inferred)
+
+    for child_id, parent_key in pending_parent_links:
+        if not parent_key:
+            continue
+        parent_id = key_lookup.get(parent_key)
+        if not parent_id:
+            if infer_group_type(parent_key.replace("-", " ")) != "default":
+                parent_group = _register_group(groups, key_lookup, parent_key.replace("-", " "))
+                parent_id = parent_group.id
+        if not parent_id or parent_id == child_id:
+            continue
+        child_group = groups.get(child_id)
+        parent_group = groups.get(parent_id)
+        if child_group and parent_group:
+            child_group.parent_id = parent_id
+            if child_group.label not in parent_group.members:
+                parent_group.members.append(child_group.label)
+
+    for parent_id, child_key in pending_child_links:
+        child_id = key_lookup.get(child_key)
+        if not child_id:
+            if infer_group_type(child_key.replace("-", " ")) != "default":
+                child_group = _register_group(groups, key_lookup, child_key.replace("-", " "))
+                child_id = child_group.id
+        if not child_id:
+            continue
+        parent_group = groups.get(parent_id)
+        child_group = groups.get(child_id)
+        if not parent_group or not child_group or child_group.id == parent_group.id:
+            continue
+        if not child_group.parent_id:
+            child_group.parent_id = parent_group.id
+        if child_group.label not in parent_group.members:
+            parent_group.members.append(child_group.label)
+
+    def match_group(name: str) -> Optional[DiagramGroup]:
+        key = normalize_group_key(name)
+        if key and key in key_lookup:
+            return groups.get(key_lookup[key])
+        lower = name.lower()
+        for group in groups.values():
+            if lower in group.label.lower() or group.label.lower() in lower:
+                return group
+        return None
+
+    for connection in connections:
+        from_group = match_group(connection.from_service)
+        to_group = match_group(connection.to_service)
+
+        if from_group and not to_group:
+            if connection.to_service and connection.to_service not in from_group.members:
+                from_group.members.append(connection.to_service)
+        elif to_group and not from_group:
+            if connection.from_service and connection.from_service not in to_group.members:
+                to_group.members.append(connection.from_service)
+        elif from_group and to_group:
+            parent = _choose_parent_group(from_group, to_group)
+            child = to_group if parent.id == from_group.id else from_group
+            if not child.parent_id:
+                child.parent_id = parent.id
+            if child.label not in parent.members:
+                parent.members.append(child.label)
+
+    for group in groups.values():
+        deduped = []
+        seen_members = set()
+        for member in group.members:
+            if member in seen_members:
+                continue
+            seen_members.add(member)
+            deduped.append(member)
+        group.members = deduped
+
+    return list(groups.values())
 
 @router.post("/analyze-diagram", response_model=ImageAnalysisResponse)
 async def analyze_diagram(request: ImageAnalysisRequest, force_model: bool = False):
@@ -453,15 +715,24 @@ async def analyze_diagram(request: ImageAnalysisRequest, force_model: bool = Fal
             label=rc.get("label", "connection")
         ) for rc in raw_connections]
 
+        raw_groups = analysis_json.get("groups") or analysis_json.get("groupings") or []
+        groups = build_group_structures(analysis_json.get("services", []), connections, raw_groups)
+
         # Create the analysis result
         result = DiagramAnalysisResult(
             services=analysis_json.get("services", []),
             connections=connections,
             description=analysis_json.get("description", "Architecture diagram analyzed"),
-            suggested_services=analysis_json.get("suggested_services", [])
+            suggested_services=analysis_json.get("suggested_services", []),
+            groups=groups
         )
 
-        logger.info(f"Successfully analyzed diagram: found {len(result.services)} services")
+        logger.info(
+            "Successfully analyzed diagram: %d services, %d connections, %d groups",
+            len(result.services),
+            len(result.connections),
+            len(result.groups),
+        )
 
         return ImageAnalysisResponse(analysis=result)
         

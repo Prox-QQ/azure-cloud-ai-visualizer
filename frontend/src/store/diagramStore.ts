@@ -1,12 +1,12 @@
 import { create } from 'zustand';
-import { Node as RFNode, Edge, Connection, addEdge, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
+import { Node as RFNode, Edge, Connection, addEdge, applyNodeChanges, applyEdgeChanges, NodeChange, EdgeChange } from '@xyflow/react';
 
 interface DiagramState {
   nodes: RFNode[];
   edges: Edge[];
   selectedNode: RFNode | null;
-  onNodesChange: (changes: unknown) => void;
-  onEdgesChange: (changes: unknown) => void;
+  onNodesChange: (changes: NodeChange<RFNode>[]) => void;
+  onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
   addNode: (node: RFNode) => void;
   addNodesFromArchitecture: (nodes: RFNode[], connections: { from: string; to: string; label?: string }[]) => void;
@@ -56,17 +56,42 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
   addNodesFromArchitecture: (nodes: RFNode[], connections: { from: string; to: string; label?: string }[]) => {
     // Clear existing nodes or add to existing ones based on user preference
     const existingNodes = get().nodes;
-    const newNodes = [...existingNodes, ...nodes];
+    const nodeMap = new Map<string, RFNode>();
+
+    existingNodes.forEach((node) => {
+      nodeMap.set(node.id, node);
+    });
+
+    nodes.forEach((node) => {
+      nodeMap.set(node.id, node);
+    });
+
+    const newNodes = Array.from(nodeMap.values());
     
-    // Create edges from connections
-    const newEdges = connections.map((conn, index) => ({
-      id: `ai-edge-${index}`,
-      source: conn.from,
-      target: conn.to,
-      type: 'animated',
-      label: conn.label,
-      data: { animated: true },
-    }));
+    const existingEdges = get().edges;
+    const existingEdgeKeys = new Set(
+      existingEdges.map((edge) => `${edge.source}__${edge.target}`)
+    );
+    const baseEdgeIndex = existingEdges.length;
+
+    const newEdges = connections
+      .filter((conn) => !!conn.from && !!conn.to)
+      .filter((conn) => {
+        const key = `${conn.from}__${conn.to}`;
+        if (existingEdgeKeys.has(key)) {
+          return false;
+        }
+        existingEdgeKeys.add(key);
+        return true;
+      })
+      .map((conn, index) => ({
+        id: `ai-edge-${baseEdgeIndex + index}`,
+        source: conn.from,
+        target: conn.to,
+        type: 'animated',
+        label: conn.label,
+        data: { animated: true },
+      }));
     
     set({
       nodes: newNodes,

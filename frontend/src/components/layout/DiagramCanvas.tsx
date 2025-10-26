@@ -9,11 +9,11 @@ import {
   MarkerType,
   Node as RFNode,
   Edge as RFEdge,
-  SelectionChangeInfo,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useDiagramStore } from '@/store/diagramStore';
 import AzureServiceNode from '@/components/nodes/AzureServiceNode';
+import AzureGroupNode from '@/components/nodes/AzureGroupNode';
 import AnimatedEdge from '@/components/edges/AnimatedEdge';
 import ParticleEdge from '@/components/edges/ParticleEdge';
 import EdgeLabelModal from '@/components/layout/EdgeLabelModal';
@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 
 const nodeTypes = {
   'azure.service': AzureServiceNode,
+  'azure.group': AzureGroupNode,
 };
 
 const edgeTypes = {
@@ -65,12 +66,32 @@ const DiagramCanvas = () => {
           y: event.clientY - reactFlowBounds.top - 40,
         };
 
-        const newNode = {
-          id: `node-${Date.now()}`,
-          type: nodeData.type,
+        const nodeId = `node-${Date.now()}`;
+        const nodeType = nodeData.type ?? 'azure.service';
+
+        const newNode: RFNode = {
+          id: nodeId,
+          type: nodeType,
           position,
-          data: nodeData.data,
+          data: nodeData.data ?? {},
+          ...(nodeData.style ? { style: nodeData.style } : {}),
         };
+
+        if (nodeType === 'azure.group') {
+          newNode.style = {
+            width: nodeData.style?.width ?? 420,
+            height: nodeData.style?.height ?? 280,
+            ...(nodeData.style || {}),
+          };
+          newNode.data = {
+            label: nodeData.data?.label ?? 'Resource Group',
+            groupType: nodeData.data?.groupType ?? 'default',
+            metadata: nodeData.data?.metadata,
+            status: 'group',
+          };
+          newNode.draggable = true;
+          newNode.selectable = true;
+        }
 
         addNode(newNode);
       }
@@ -94,9 +115,8 @@ const DiagramCanvas = () => {
     setSelectedNode(null);
   }, [setSelectedNode]);
 
-  const onSelectionChange = useCallback((params: SelectionChangeInfo) => {
-    // params may contain selectedNodes and selectedEdges
-    // We'll keep the selected node via store; for edges we'll manage a local toolbar
+  const onSelectionChange = useCallback(() => {
+    // Handle selection changes if needed
   }, []);
 
   // Keyboard shortcuts
@@ -171,6 +191,7 @@ const DiagramCanvas = () => {
         <MiniMap
           className="glass-panel !border-border/50"
           nodeColor={(node) => {
+            if (node.type === 'azure.group') return 'hsl(var(--primary) / 0.35)';
             if (node.data.status === 'active') return 'hsl(var(--primary))';
             return 'hsl(var(--muted))';
           }}

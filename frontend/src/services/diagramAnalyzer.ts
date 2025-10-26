@@ -7,6 +7,16 @@ export interface DiagramAnalysisResult {
   connections: { from_service: string; to_service: string; label?: string }[];
   description: string;
   suggested_services: string[];
+  groups?: DiagramAnalysisGroup[];
+}
+
+export interface DiagramAnalysisGroup {
+  id: string;
+  label: string;
+  group_type?: string;
+  members?: string[];
+  parent_id?: string | null;
+  metadata?: Record<string, unknown>;
 }
 
 export class DiagramAnalyzer {

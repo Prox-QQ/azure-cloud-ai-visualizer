@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from app.core.azure_client import AzureClientManager
 from app.iac_generators import generate_bicep_code, generate_terraform_code
 from app.iac_generators.validation import validate_iac_with_cli
+from app.iac_generators.enrichment import enrich_diagram_with_governance
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -74,6 +75,7 @@ async def generate_iac(
     try:
         agent = azure_clients.get_azure_architect_agent()
         diagram = request_data.diagram_data if isinstance(request_data.diagram_data, dict) else {}
+        diagram, preflight = enrich_diagram_with_governance(diagram)
         target = (request_data.target_format or 'bicep').lower()
 
         if target == 'bicep':
@@ -99,6 +101,10 @@ async def generate_iac(
             parameters = result.get('parameters', {}) or {}
         else:
             content = str(result)
+
+        if preflight:
+            parameters.setdefault('preflight', {})
+            parameters['preflight'].update(preflight)
 
         # Optional CLI validation
         if request_data.init_and_validate:

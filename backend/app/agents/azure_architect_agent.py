@@ -18,8 +18,6 @@ from pydantic import Field
 from typing import Any as TypingAny, cast
 try:
     from agent_framework import ChatAgent, ChatMessage, TextContent, UriContent
-    from agent_framework.azure import AzureAIAgentClient, AzureOpenAIResponsesClient, AzureOpenAIChatClient
-    from agent_framework.openai import OpenAIAssistantsClient, OpenAIResponsesClient
 except Exception:
     # Optional dependencies - allow module to be imported in environments
     # where the agent_framework packages are not installed. Provide

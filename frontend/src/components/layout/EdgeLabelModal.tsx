@@ -17,7 +17,8 @@ const EdgeLabelModal: React.FC<Props> = ({ edgeId, open, onClose }) => {
   useEffect(() => {
     if (edgeId) {
       const e = edges.find((ed) => ed.id === edgeId);
-      setLabel(e?.label ?? '');
+      const edgeLabel = e?.label;
+      setLabel(typeof edgeLabel === 'string' ? edgeLabel : '');
     } else {
       setLabel('');
     }

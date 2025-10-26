@@ -2,7 +2,7 @@
 ![alt text](image.png)
 Cloud Visualizer Pro is an open-source web application for visually designing Azure architecture diagrams, generating grounded Infrastructure-as-Code (IaC) (Bicep and Terraform), and orchestrating deployments. It combines a React/TypeScript frontend with a FastAPI backend and integrates the Microsoft Agent Framework (MAF) and Model Context Protocol (MCP) to ground LLM-driven IaC generation in official documentation.
 
-![alt text](image-1.png)
+![alt text](image-4.png)
 
 ## High-level Architecture
 

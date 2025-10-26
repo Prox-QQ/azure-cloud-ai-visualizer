@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Icon } from '@iconify/react';
 import { DiagramAnalyzer, DiagramAnalysisResult } from '@/services/diagramAnalyzer';
-import { ArchitectureParser, ParsedArchitecture } from '@/services/architectureParser';
+import { ArchitectureParser, ParsedArchitecture, ParsedGroup, ParsedGroupType } from '@/services/architectureParser';
 import { AzureService } from '@/data/azureServices';
 import { useDiagramStore } from '@/store/diagramStore';
 import { toast } from 'sonner';
@@ -13,6 +13,33 @@ import { toast } from 'sonner';
 interface ImageUploadProps {
   onAnalysisComplete?: (result: DiagramAnalysisResult) => void;
 }
+
+const normalizeGroupKey = (value?: string | null): string => {
+  if (!value) return '';
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+};
+
+const mapBackendGroupType = (type?: string, label?: string): ParsedGroupType => {
+  const normalizedType = (type || '').toLowerCase();
+  const normalizedLabel = (label || '').toLowerCase();
+
+  const matches = (...keys: string[]) => keys.some((key) => normalizedType.includes(key) || normalizedLabel.includes(key));
+
+  if (matches('region')) return 'region';
+  if (matches('landing zone', 'landing_zone', 'landing-zone')) return 'landingZone';
+  if (matches('resource group')) return 'resourceGroup';
+  if (matches('virtual network', 'virtual_network', 'vnet')) return 'virtualNetwork';
+  if (matches('subnet')) return 'subnet';
+  if (matches('network security group', 'nsg')) return 'networkSecurityGroup';
+  if (matches('cluster', 'aks')) return 'cluster';
+  if (matches('security boundary')) return 'securityBoundary';
+  if (matches('management group', 'tenant root')) return 'managementGroup';
+  if (matches('subscription')) return 'subscription';
+  if (matches('policy assignment', 'policy definition')) return 'policyAssignment';
+  if (matches('role assignment', 'rbac')) return 'roleAssignment';
+
+  return 'default';
+};
 
 export const ImageUpload: React.FC<ImageUploadProps> = ({ onAnalysisComplete }) => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -77,6 +104,87 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({ onAnalysisComplete }) 
         return null;
       };
 
+      const rawGroups = analysisResult.groups ?? [];
+      const parsedGroups: ParsedGroup[] = [];
+      const groupKeyToId = new Map<string, string>();
+      const nestedGroupLinks: Array<{ parentId: string; childKey: string }> = [];
+
+      rawGroups.forEach((group, index) => {
+        const label = group.label || group.id || `Group ${index + 1}`;
+        const serviceForGroup = ArchitectureParser.findAzureServiceByName(label);
+        if (serviceForGroup && !parsedServices.find((s) => s.id === serviceForGroup.id)) {
+          parsedServices.push(serviceForGroup);
+        }
+
+        const resolvedId =
+          serviceForGroup?.id || `group-${index}-${normalizeGroupKey(label) || index.toString()}`;
+
+        const members: string[] = [];
+        (group.members || []).forEach((memberName) => {
+          const svc = ensureParsedService(memberName);
+          if (svc) {
+            members.push(svc.id);
+            return;
+          }
+          const childKey = normalizeGroupKey(memberName);
+          if (childKey) {
+            nestedGroupLinks.push({ parentId: resolvedId, childKey });
+          }
+        });
+
+        const parsedGroup: ParsedGroup = {
+          id: resolvedId,
+          label,
+          type: mapBackendGroupType(group.group_type, label),
+          members,
+          metadata: group.metadata,
+          sourceServiceId: serviceForGroup?.id,
+        };
+
+        parsedGroups.push(parsedGroup);
+
+        [group.id, label].forEach((key) => {
+          const normalizedKey = normalizeGroupKey(key);
+          if (normalizedKey) {
+            groupKeyToId.set(normalizedKey, resolvedId);
+          }
+        });
+      });
+
+      rawGroups.forEach((group, index) => {
+        const parsedGroup = parsedGroups[index];
+        if (!parsedGroup) return;
+        const parentKey = normalizeGroupKey(group.parent_id);
+        if (parentKey) {
+          const parentId = groupKeyToId.get(parentKey);
+          if (parentId && parentId !== parsedGroup.id) {
+            parsedGroup.parentId = parentId;
+          }
+        }
+      });
+
+      nestedGroupLinks.forEach(({ parentId, childKey }) => {
+        const childId = groupKeyToId.get(childKey);
+        if (!childId || childId === parentId) return;
+        const childGroup = parsedGroups.find((group) => group.id === childId);
+        const parentGroup = parsedGroups.find((group) => group.id === parentId);
+        if (!childGroup || !parentGroup) return;
+        childGroup.parentId = childGroup.parentId ?? parentId;
+        if (!parentGroup.members.includes(childId)) {
+          parentGroup.members.push(childId);
+        }
+      });
+
+      parsedGroups.forEach((group) => {
+        if (group.parentId) {
+          const parentGroup = parsedGroups.find((candidate) => candidate.id === group.parentId);
+          if (parentGroup && !parentGroup.members.includes(group.id)) {
+            parentGroup.members.push(group.id);
+          }
+        }
+        group.members = Array.from(new Set(group.members));
+      });
+
       // Map connections using the correct field names from backend and ensure endpoint services exist
       const mappedConnections = analysisResult.connections.map(conn => {
         // Resolve or add services referenced by connections
@@ -97,7 +205,8 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({ onAnalysisComplete }) 
       const architecture: ParsedArchitecture = {
         services: parsedServices,
         connections: mappedConnections,
-        layout: parsedServices.length <= 3 ? 'horizontal' : parsedServices.length <= 6 ? 'vertical' : 'grid'
+        layout: parsedServices.length <= 3 ? 'horizontal' : parsedServices.length <= 6 ? 'vertical' : 'grid',
+        groups: parsedGroups.length > 0 ? parsedGroups : undefined
       };
       
       // Generate nodes and add to diagram
